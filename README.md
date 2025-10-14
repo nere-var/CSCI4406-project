@@ -49,6 +49,8 @@ How your implementation will ensure reliability and handle packet loss, duplicat
   - allows a user to set their username and password prior to entering a chatroom for the first time 
 - USERNAME CHANGE \<old username> <password> <new username\> 
   - allows a user to change their username
+- LOGIN \<username> <password\>
+  - allows user to sign in after registering
 - ONLINE \<room\>
   - lists who is online
 ### How Client and Server Will Interact
