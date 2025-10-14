@@ -53,7 +53,7 @@ How your implementation will ensure reliability and handle packet loss, duplicat
   - lists who is online
 ### How Client and Server Will Interact
 The client and server will interact by allowing a user to download the client to access a server hosted elsewhere. By having access to the client, the user can connect to the server, set a username and password, connect to a chatroom and chat, change their username, or disconnect from the server and leave the chat.\
-The server will accept a sent message from a client, and broadcast it to any connected users of the chatroom. The server will also store any usernames and passwords set by users connecting by associating usernames with client sockets.
+The server will accept a sent message from a client, and broadcast it to any connected users of the chatroom. The server will also store any usernames and passwords set by users connecting by associating usernames with client sockets. It will also have a list of all users who are connected to the server, and specify which chat room they are in.
 ### How Concurrency Will Be Supported
 How concurrency will be supported (at least 2 clients).
 ## Testing and Metrics Plan
