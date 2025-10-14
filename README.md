@@ -5,7 +5,7 @@ Pixel Panthers - Adrian Lopez, Mallory Sorola, Isabel Villarreal, Emma Whitehead
 App 2: Group Chat with Rooms + Presence
 
 ## Project Overview
-#### **What We Will Demonstrate**
+### What We Will Demonstrate
 - A working chat service modeled after socket programming examples including
   - usernames
   - presence notifications
@@ -15,15 +15,40 @@ App 2: Group Chat with Rooms + Presence
  - Handling of out-of-order arrivals
  - Latency and retransmission reports
  - Implementation of Sliding Window ARQ
-#### **Project Goals**
+### Project Goals
 - Building a working chat service for multiple clients
 - Collect metrics like throughput, average/95th-percentile latency to produce a metrics report
 - Requiring a checksum to verify message integrity
 - Implementing
   - flow control
-  - reliability using Go-Back-N or Selective Repeat
+  - reliability using Selective Repeat
   - timeout and retransmission
 - Ensuring our client
   - passes all lossy network shim tests without crashing or hanging
   - can handle two or more clients concurrently
   - has proper error handling for invalid commands or disconnects
+## Transport Protocol Design Plan
+### Reliability Protocol Choice
+We plan to implement the **Selective Repeat** reliability protocol for our project versus using Go-Back-N. We've chosen to use Selective Repeat for efficiency since only lost or error packets are retransmitted instead of having the entire window of packets from the lost packet to the last packet transmitted are retransmitted.
+### Design Details
+Design details such as header fields, timers, flow control, and retransmission logic.
+### How Reliability Will Be Ensured
+How your implementation will ensure reliability and handle packet loss, duplication, or reordering.
+## Application Layer Design Plan
+### Message Format and Command Grammar
+Message format and command grammar (e.g., LIST, GET <file>, MSG <room> <text>, PLAY <video>).
+### How Client and Server Will Interact
+How your client and server will interact.
+### How Concurrency Will Be Supported
+How concurrency will be supported (at least 2 clients).
+## Testing and Metrics Plan
+### How We Plan To Test Our System
+How you plan to test your system under the three lossy network profiles (Clean, Random Loss, Bursty Loss).
+### Metrics Measured
+Which metrics you intend to measure (e.g., throughput, latency, retransmissions, dropped frames, stall time).
+## Progress Summary (Midterm Status - 10/31/2025
+### Implemented So Far
+What has been implemented so far (with brief descriptions of working components).
+### What Remains to be Completed
+What remains to be completed for the final milestone.
+Evidence of progress such as code structure, working prototypes, or initial testing.
