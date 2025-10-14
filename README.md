@@ -43,15 +43,17 @@ How your implementation will ensure reliability and handle packet loss, duplicat
   - leave a chatroom 
 - MSG \<room> <text\>
   - send a message to a chatroom
-- USERNAME SET \<username\>
-  - allows a user to set their username prior to entering a chatroom
-- USERNAME CHANGE \<old username> <new username\>
+- LIST
+  - lists chatrooms available to join
+- USERNAME REGISTER \<username> <password\>
+  - allows a user to set their username and password prior to entering a chatroom for the first time 
+- USERNAME CHANGE \<old username> <password> <new username\> 
   - allows a user to change their username
 - ONLINE \<room\>
   - lists who is online
 ### How Client and Server Will Interact
-The client and server will interact by allowing a user to download the client to access a server hosted elsewhere. By having access to the client, the user can connect to the server, set a username, connect to a chatroom and chat, change their username, or disconnect from the server and leave the chat.\
-The server will accept a sent message from a client, and broadcast it to any connected users of the chatroom.
+The client and server will interact by allowing a user to download the client to access a server hosted elsewhere. By having access to the client, the user can connect to the server, set a username and password, connect to a chatroom and chat, change their username, or disconnect from the server and leave the chat.\
+The server will accept a sent message from a client, and broadcast it to any connected users of the chatroom. The server will also store any usernames and passwords set by users connecting by associating usernames with client sockets.
 ### How Concurrency Will Be Supported
 How concurrency will be supported (at least 2 clients).
 ## Testing and Metrics Plan
