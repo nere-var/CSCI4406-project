@@ -36,9 +36,22 @@ Design details such as header fields, timers, flow control, and retransmission l
 How your implementation will ensure reliability and handle packet loss, duplication, or reordering.
 ## Application Layer Design Plan
 ### Message Format and Command Grammar
-Message format and command grammar (e.g., LIST, GET <file>, MSG <room> <text>, PLAY <video>).
+**Commands**
+- JOIN \<room\> 
+  - join a chatroom
+- LEAVE \<room\>
+  - leave a chatroom 
+- MSG \<room> <text\>
+  - send a message to a chatroom
+- USERNAME SET \<username\>
+  - allows a user to set their username prior to entering a chatroom
+- USERNAME CHANGE \<old username> <new username\>
+  - allows a user to change their username
+- ONLINE \<room\>
+  - lists who is online
 ### How Client and Server Will Interact
-How your client and server will interact.
+The client and server will interact by allowing a user to download the client to access a server hosted elsewhere. By having access to the client, the user can connect to the server, set a username, connect to a chatroom and chat, change their username, or disconnect from the server and leave the chat.\
+The server will accept a sent message from a client, and broadcast it to any connected users of the chatroom.
 ### How Concurrency Will Be Supported
 How concurrency will be supported (at least 2 clients).
 ## Testing and Metrics Plan
