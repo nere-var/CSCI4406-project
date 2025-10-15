@@ -41,6 +41,7 @@ We plan to implement the **Selective Repeat** reliability protocol for our proje
 | wnd      | 2 bytes | receiver window (flow control) |
 | len      | 2 bytes | payload length                 |
 | checksum | 4 bytes | CRC32 over header + data       |
+
 **Timers:**
 - One timer per sent packet.
 - If ACK isn’t received before timeout, resend that packet.
@@ -58,6 +59,7 @@ We plan to implement the **Selective Repeat** reliability protocol for our proje
 | **Packet duplication** | Receiver uses sequence numbers to ignore duplicates.                                          |
 | **Packet reordering**  | Receiver stores out-of-order packets and delivers them in order once the missing ones arrive. |
 | **Corruption**         | Detected with checksum; corrupted packets are dropped and resent.                             |
+
 ## Application Layer Design Plan
 ### Message Format and Command Grammar
 **Commands**
