@@ -29,11 +29,35 @@ App 2: Group Chat with Rooms + Presence
   - has proper error handling for invalid commands or disconnects
 ## Transport Protocol Design Plan
 ### Reliability Protocol Choice
-We plan to implement the **Selective Repeat** reliability protocol for our project versus using Go-Back-N. We've chosen to use Selective Repeat for efficiency since only lost or error packets are retransmitted instead of having the entire window of packets from the lost packet to the last packet transmitted are retransmitted.
+We plan to implement the **Selective Repeat** reliability protocol for our project versus using Go-Back-N. We've chosen to use Selective Repeat for efficiency since only lost or corrupted packets are retransmitted instead of having the entire window of packets from the lost packet to the last packet transmitted are retransmitted.
 ### Design Details
-Design details such as header fields, timers, flow control, and retransmission logic.
+| Field    | Size    | Description                    |
+| -------- | ------- | ------------------------------ |
+| ver      | 1 byte  | protocol version               |
+| flags    | 1 byte  | bits for ACK, SYN, FIN         |
+| conn_id  | 2 bytes | connection ID                  |
+| seq      | 4 bytes | sequence number                |
+| ack      | 4 bytes | last packet received in order  |
+| wnd      | 2 bytes | receiver window (flow control) |
+| len      | 2 bytes | payload length                 |
+| checksum | 4 bytes | CRC32 over header + data       |
+**Timers:**
+- One timer per sent packet.
+- If ACK isn’t received before timeout, resend that packet.
+- Start with a fixed timeout (like 500 ms) or use adaptive timeout (measure round-trip time).
+- When a packet is ACKed, stop its timer.
+**Flow Control:**
+- Receiver tells the sender how much buffer space it has using the wnd (window) field.
+- Sender can only send up to that many bytes at once, which prevents the receiver from being overloaded.
+**Retransmission Logic:**
+  We will be using selective repeat to ensure retransmission for lost or corrupted packets.
 ### How Reliability Will Be Ensured
-How your implementation will ensure reliability and handle packet loss, duplication, or reordering.
+| Problem                | Solution                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| **Packet loss**        | Unacknowledged packets are retransmitted after timeout.                                       |
+| **Packet duplication** | Receiver uses sequence numbers to ignore duplicates.                                          |
+| **Packet reordering**  | Receiver stores out-of-order packets and delivers them in order once the missing ones arrive. |
+| **Corruption**         | Detected with checksum; corrupted packets are dropped and resent.                             |
 ## Application Layer Design Plan
 ### Message Format and Command Grammar
 **Commands**
@@ -62,7 +86,10 @@ How concurrency will be supported (at least 2 clients).
 ### How We Plan To Test Our System
 How you plan to test your system under the three lossy network profiles (Clean, Random Loss, Bursty Loss).
 ### Metrics Measured
-Which metrics you intend to measure (e.g., throughput, latency, retransmissions, dropped frames, stall time).
+- Latency: Time from send to receive (average and 95th percentile).
+- Goodput: Messages delivered per second.
+- Retransmissions: Number of packets resent per KB.
+- Out-of-order: Count of packets that arrived out of order.
 ## Progress Summary (Midterm Status - 10/31/2025
 ### Implemented So Far
 We have a base chat client established, where a server and client can communicate with each other. There is only support for one client at a time.
