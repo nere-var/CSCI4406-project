@@ -31,6 +31,8 @@ App 2: Group Chat with Rooms + Presence
 ### Reliability Protocol Choice
 We plan to implement the **Selective Repeat** reliability protocol for our project versus using Go-Back-N. We've chosen to use Selective Repeat for efficiency since only lost or corrupted packets are retransmitted instead of having the entire window of packets from the lost packet to the last packet transmitted are retransmitted.
 ### Design Details
+**Header Design:**
+
 | Field    | Size    | Description                    |
 | -------- | ------- | ------------------------------ |
 | ver      | 1 byte  | protocol version               |
@@ -40,7 +42,10 @@ We plan to implement the **Selective Repeat** reliability protocol for our proje
 | ack      | 4 bytes | last packet received in order  |
 | wnd      | 2 bytes | receiver window (flow control) |
 | len      | 2 bytes | payload length                 |
-| checksum | 4 bytes | CRC32 over header + data       |
+| checksum | 4 bytes | CRC32 over header + data       | 
+
+We are using CRC32 to detect accidental data corruption during transmission or storage. More info on CRC32 can be found [here](https://he3.hashnode.dev/understanding-the-crc32-hash-a-comprehensive-guide).
+
 
 **Timers:**
 - One timer per sent packet.
@@ -83,10 +88,20 @@ We plan to implement the **Selective Repeat** reliability protocol for our proje
 The client and server will interact by allowing a user to download the client to access a server hosted elsewhere. By having access to the client, the user can connect to the server, set a username and password, connect to a chatroom and chat, or disconnect from the server and leave the chat.\
 The server will accept a sent message from a client, and broadcast it to any connected users of the chatroom. The server will also store any usernames and passwords set by users connecting by associating usernames with client sockets. It will also have a list of all users who are connected to the server, and specify which chat room they are in.
 ### How Concurrency Will Be Supported
-How concurrency will be supported (at least 2 clients).
+Concurrency will be supported server-side by using threads. Each client connection gets its own handler that manages:
+- Sending and receiving packets
+- Sequence numbers
+- Timers
+- Buffers for Selective Repeat
+When a new client connects, the server starts a new thread for that client. Each thread runs the chat logic (JOIN, MSG, LEAVE) and handles reliable transport for that connection.
 ## Testing and Metrics Plan
 ### How We Plan To Test Our System
-How you plan to test your system under the three lossy network profiles (Clean, Random Loss, Bursty Loss).
+| Profile         | Description                     | How We Simulate It                                                                                       | What We Measure                                                         |
+| --------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **Clean**       | No packet loss or delay         | Run server and clients on the same machine or LAN with normal UDP sockets.                               | Baseline latency, throughput, and no retransmissions.                   |
+| **Random Loss** | Packets are randomly dropped    | Add random `drop()` calls in code (e.g., drop 10% of packets). | Retransmissions per KB, latency increase, message delivery correctness. |
+| **Bursty Loss** | Groups of packets lost together | Simulate dropping several packets in a row (e.g., 3–5 consecutive packets).                              | How fast the protocol recovers after a burst; out-of-order correction.  |
+
 ### Metrics Measured
 - Latency: Time from send to receive (average and 95th percentile).
 - Goodput: Messages delivered per second.
