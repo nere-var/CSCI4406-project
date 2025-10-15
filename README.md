@@ -47,8 +47,6 @@ How your implementation will ensure reliability and handle packet loss, duplicat
   - lists chatrooms available to join
 - USERNAME REGISTER \<username> <password\>
   - allows a user to set their username and password prior to entering a chatroom for the first time 
-- USERNAME CHANGE \<old username> <password> <new username\> 
-  - allows a user to change their username
 - LOGIN \<username> <password\>
   - allows user to sign in after registering
 - ONLINE \<room\>
@@ -56,7 +54,7 @@ How your implementation will ensure reliability and handle packet loss, duplicat
 - DISCONNECT \<room\>
   - allows user to disconnect from the chat room and return to main server screen to view list of chatrooms available or change username
 ### How Client and Server Will Interact
-The client and server will interact by allowing a user to download the client to access a server hosted elsewhere. By having access to the client, the user can connect to the server, set a username and password, connect to a chatroom and chat, change their username, or disconnect from the server and leave the chat.\
+The client and server will interact by allowing a user to download the client to access a server hosted elsewhere. By having access to the client, the user can connect to the server, set a username and password, connect to a chatroom and chat, or disconnect from the server and leave the chat.\
 The server will accept a sent message from a client, and broadcast it to any connected users of the chatroom. The server will also store any usernames and passwords set by users connecting by associating usernames with client sockets. It will also have a list of all users who are connected to the server, and specify which chat room they are in.
 ### How Concurrency Will Be Supported
 How concurrency will be supported (at least 2 clients).
@@ -67,7 +65,9 @@ How you plan to test your system under the three lossy network profiles (Clean, 
 Which metrics you intend to measure (e.g., throughput, latency, retransmissions, dropped frames, stall time).
 ## Progress Summary (Midterm Status - 10/31/2025
 ### Implemented So Far
-What has been implemented so far (with brief descriptions of working components).
+We have a base chat client established, where a server and client can communicate with each other. There is only support for one client at a time.
 ### What Remains to be Completed
-What remains to be completed for the final milestone.
-Evidence of progress such as code structure, working prototypes, or initial testing.
+We need to add the following things:
+- concurrency support
+- username support
+- separate chat rooms
