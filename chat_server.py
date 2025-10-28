@@ -15,7 +15,7 @@ def from_bytes(b: bytes) -> dict:
 
 class ChatServer:
     def __init__(self, host='0.0.0.0', port=9000):
-        """Bind reliable UDP socket; set up room & username maps; register RX callback."""
+        #Bind reliable UDP socket; set up room & username maps; register RX callback.
         self.sock = ReliableUDPSocket(local_addr=(host, port))
         self.rooms = defaultdict(set)   # room to set(peer_addr)
         self.usernames = {}             # peer_addr to username
@@ -23,7 +23,7 @@ class ChatServer:
         self.sock.on_message(self._on_message)
 
     def _broadcast(self, room: str, payload: bytes, exclude=None):
-        """Send payload to all peers in a room """
+        #Send payload to all peers in a room 
         for peer in list(self.rooms[room]):   # snapshot so we can modify set safely
             if exclude and peer == exclude:
                 continue
@@ -31,12 +31,12 @@ class ChatServer:
             self.sock.send_msg(payload)
 
     def _send_peer(self, peer, payload: bytes):
-        """Send payload to one peer."""
+        #Send payload to one peer.
         self.sock.peer = peer
         self.sock.send_msg(payload)
 
     def _on_message(self, payload: bytes):
-        """Handle JOIN/LEAVE/MSG/WHO from the actual sender (last_from)."""
+        #Handle JOIN/LEAVE/MSG/WHO from the actual sender (last_from).
         msg = from_bytes(payload)
 
         # *** IMPORTANT: use the real sender of this packet ***

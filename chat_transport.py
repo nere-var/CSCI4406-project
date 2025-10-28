@@ -22,7 +22,7 @@ MAX_PAYLOAD = 900
 
 
 class ReliableUDPSocket:
-    """Stop-and-Wait reliable transport over UDP """
+    # Stop-and-Wait reliable transport over UDP 
     def __init__(self, local_addr=('0.0.0.0', 0), conn_id=None):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.bind(local_addr)
@@ -48,18 +48,18 @@ class ReliableUDPSocket:
 
     # ---------------- Public API ----------------
     def connect(self, peer_addr):
-        """Set remote peer and send SYN (no full handshake)."""
+        # Set remote peer and send SYN (no full handshake).
         self.peer = peer_addr
         syn = self._pack_hdr(FLAG_SYN | FLAG_ACK, 0, 0, 0, 0)
         self.sock.sendto(syn, self.peer)
         self.metrics['bytes_sent'] += len(syn)
 
     def on_message(self, cb):
-        """Register callback to deliver messages (payload bytes)."""
+        # Register callback to deliver messages (payload bytes).
         self._on_msg = cb
 
     def send_msg(self, data: bytes):
-        """Reliably send one message (<= MAX_PAYLOAD)."""
+        # Reliably send one message (<= MAX_PAYLOAD).
         assert len(data) <= MAX_PAYLOAD, "payload too large"
         with self._lock:
             while self.inflight is not None and not self._closed:
@@ -74,7 +74,7 @@ class ReliableUDPSocket:
             threading.Thread(target=self._timer, args=(seq,), daemon=True).start()
 
     def close(self):
-        """Send FIN and close socket."""
+        # Send FIN and close socket.
         with self._lock:
             self._closed = True
             try:
@@ -91,7 +91,7 @@ class ReliableUDPSocket:
 
  
     def _rx_loop(self):
-        """Receive packets, handle ACK/DATA/FIN."""
+        # Receive packets, handle ACK/DATA/FIN.
         while not self._closed:
             try:
                 data, addr = self.sock.recvfrom(2048)
@@ -135,7 +135,7 @@ class ReliableUDPSocket:
                 self._closed = True
 
     def _timer(self, seq):
-        """Retransmit once if ACK not received before timeout."""
+        # Retransmit once if ACK not received before timeout.
         time.sleep(DEFAULT_RTO)
         with self._lock:
             if self.inflight and self.inflight[0] == seq and not self._closed:
@@ -144,7 +144,7 @@ class ReliableUDPSocket:
                 self.metrics['retransmissions'] += 1
 
     def _deliver(self, payload: bytes):
-        """Deliver received payload to app callback."""
+        # Deliver received payload to app callback.
         if self._on_msg:
             try:
                 self._on_msg(payload)
@@ -152,28 +152,28 @@ class ReliableUDPSocket:
                 pass
 
     def _send_ack(self, ackno):
-        """Send ACK for next expected seq."""
+        # Send ACK for next expected seq.
         ack_hdr = self._pack_hdr(FLAG_ACK, 0, ackno, 0, 0)
         self.sock.sendto(ack_hdr, self.last_from or self.peer)
         self.metrics['bytes_sent'] += len(ack_hdr)
 
     def _make_pkt(self, flags, seq, ack, payload: bytes):
-        """Build header+payload with CRC32 checksum."""
+        # Build header+payload with CRC32 checksum.
         hdr0 = struct.pack(HDR_FMT, VER, flags, self.conn_id, seq, ack, 0, len(payload), 0)
         cksum = zlib.crc32(hdr0 + payload) & 0xFFFFFFFF
         hdr = struct.pack(HDR_FMT, VER, flags, self.conn_id, seq, ack, 0, len(payload), cksum)
         return hdr + payload
 
     def _pack_hdr(self, flags, seq, ack, wnd, length):
-        """Build header-only packet (SYN/ACK/FIN)."""
+        # Build header-only packet (SYN/ACK/FIN).
         hdr0 = struct.pack(HDR_FMT, VER, flags, self.conn_id, seq, ack, wnd, length, 0)
         cksum = zlib.crc32(hdr0) & 0xFFFFFFFF
         return struct.pack(HDR_FMT, VER, flags, self.conn_id, seq, ack, wnd, length, cksum)
 
     def _valid_cksum(self, hdr, payload=b''):
-        """Verify CRC32 checksum."""
-        ver, flags, conn_id, seq, ack, wnd, length, cksum = struct.unpack(HDR_FMT, hdr)
-        hdr0 = struct.pack(HDR_FMT, ver, flags, conn_id, seq, ack, wnd, length, 0)
-        calc = zlib.crc32(hdr0 + payload) & 0xFFFFFFFF
-        return calc == cksum
+        # Verify CRC32 checksum.
+        ver, flags, conn_id, seq, ack, wnd, length, cksum = struct.unpack(HDR_FMT, hdr) # unpack
+        hdr0 = struct.pack(HDR_FMT, ver, flags, conn_id, seq, ack, wnd, length, 0) # zero cksum
+        calc = zlib.crc32(hdr0 + payload) & 0xFFFFFFFF # calculate
+        return calc == cksum 
 
