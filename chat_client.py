@@ -1,140 +1,162 @@
-# chat_client.py — client for the chat service over UDP
+#chat_client.py — command-line client for the group chat service
 
-import argparse 
-import sys
-import json
-from chat_transport import ReliableUDPSocket  
+import argparse
 import threading
+import json
 
-def to_bytes(d: dict) -> bytes: 
-    return (json.dumps(d) + '\n').encode()
+from chat_transport import ReliableUDPSocket
+
+
+def to_bytes(d: dict) -> bytes:
+    return (json.dumps(d) + "\n").encode("utf-8")
+
 
 def from_bytes(b: bytes) -> dict:
-    return json.loads(b.decode())
+    return json.loads(b.decode("utf-8").strip())
 
-class ChatClient: 
+
+class ChatClient:
     def __init__(self, server_host: str, server_port: int):
-        self.sock = ReliableUDPSocket() 
-        self.sock.connect((server_host, server_port)) 
-        self.sock.on_message(self._on_message)
-        self.username = None
-        self.check_event = threading.Event()
-        self.check_result = None
+        self.transport = ReliableUDPSocket()
+        self.conn_id = self.transport.connect((server_host, server_port))
+        self.running = True
 
-    def _on_message(self, payload: bytes):
-        try:
-            msg = from_bytes(payload)
-            cmd = msg.get('cmd')
-            text = msg.get('text')
-            
-            if cmd == 'SYS' and text in ['username taken', 'username available', 'username exists']:
-                self.check_result = text
-                self.check_event.set()
-                return
+    # ---------- auth ----------
 
-            if cmd == 'MSG':
-                print(f"[{msg.get('room')}] {msg.get('user')}: {text}")
-            elif cmd == 'SYS':
-                try:
-                    parsed = json.loads(text)
-                    if isinstance(parsed, list):
-                        print("Available chatrooms:")
-                        for r in parsed:
-                            print(" -", r)
-                    else:
-                        print(text)
-                except json.JSONDecodeError:
-                    print(text)
-            else:
-                print(payload.decode(errors='ignore'))
-        except Exception:
-            print(payload.decode(errors='ignore'))
-
-    def check_user(self, user):
-        self.sock.send_msg(to_bytes({'cmd': 'CHECK_USER', 'user': user}))
-
-    def join(self, room: str):
-        self.sock.send_msg(to_bytes({'cmd': 'JOIN', 'room': room, 'user': self.username}))
-
-    def leave(self, room: str):
-        self.sock.send_msg(to_bytes({'cmd': 'LEAVE', 'room': room, 'user': self.username}))
-
-    def msg(self, room: str, text: str):
-        self.sock.send_msg(to_bytes({'cmd': 'MSG', 'room': room, 'user': self.username, 'text': text}))
-
-    def who(self, room: str):
-        self.sock.send_msg(to_bytes({'cmd': 'WHO', 'room': room}))
-
-    def register(self, user, pw):
-        self.sock.send_msg(to_bytes({'cmd':'REGISTER','user':user,'pw':pw}))
-
-    def login(self, user, pw):
-        self.sock.send_msg(to_bytes({'cmd':'LOGIN','user':user,'pw':pw}))
-
-    def list_rooms(self):
-        self.sock.send_msg(to_bytes({'cmd':'LIST_ROOMS'}))
-
-    def run(self):
+    def _auth(self):
         while True:
             choice = input("Register (r) or Login (l): ").strip().lower()
-            if choice == 'r':
-                u = None
-                while True:
-                    u_temp = input("New username: ").strip()
-                    if not u_temp: continue
-                    self.check_event.clear()
-                    self.check_result = None
-                    self.check_user(u_temp)
-                    print("Checking username availability...")
-                    if self.check_event.wait(5):
-                        if self.check_result == 'username taken':
-                            print("!!! Error: Username is already taken. Try again.")
-                            continue
-                        print(f"Username '{u_temp}' is available.")
-                        u = u_temp
-                        break
-                    else:
-                        print("!!! Error: Server took too long to respond. Cannot register.")
-                        break
-                if u:
-                    pw = input("New password: ").strip()
-                    self.register(u, pw)
-                    self.username = u
+            if choice not in ("r", "l"):
                 continue
-            elif choice == 'l':
-                u = input("Username: ").strip()
-                pw = input("Password: ").strip()
-                self.username = u
-                self.login(u, pw)
-                break
+            username = input("Username: ").strip()
+            password = input("Password: ").strip()
 
-        print("Fetching available chatrooms...") 
-        self.list_rooms()
-        print("You may now use chat commands.")
-        self.run_cli()
-
-    def run_cli(self):
-        print("Commands: JOIN <room> | LEAVE <room> | MSG <room> <text> | WHO <room> | QUIT")
-        for line in sys.stdin:
-            parts = line.strip().split(' ', 2)
-            if not parts or parts[0] == '':
+            msg = {
+                "type": "auth",
+                "mode": "register" if choice == "r" else "login",
+                "username": username,
+                "password": password,
+            }
+            self.transport.send_msg(self.conn_id, to_bytes(msg))
+            reply_bytes = self.transport.recv_msg(self.conn_id, timeout=30.0)
+            if not reply_bytes:
+                print("No response from server, try again.")
                 continue
-            cmd = parts[0].upper()
-            if cmd == 'JOIN' and len(parts) >= 2:
-                self.join(parts[1])
-            elif cmd == 'LEAVE' and len(parts) >= 2:
-                self.leave(parts[1])
-            elif cmd == 'MSG' and len(parts) >= 3:
-                self.msg(parts[1], parts[2])
-            elif cmd == 'WHO' and len(parts) >= 2:
-                self.who(parts[1])
-            elif cmd == 'QUIT':
-                break
-        self.sock.close()
+            try:
+                reply = from_bytes(reply_bytes)
+            except Exception:
+                print("Bad response from server")
+                continue
+            if reply.get("type") == "auth_ok":
+                print(reply.get("message", "Authenticated."))
+                return username
+            else:
+                print("Auth error:", reply.get("message"))
 
-if __name__ == '__main__':
+    # ---------- receiving loop ----------
+
+    def _recv_loop(self):
+        while self.running:
+            data = self.transport.recv_msg(self.conn_id, timeout=1.0)
+            if data is None:
+                continue
+            try:
+                msg = from_bytes(data)
+            except Exception:
+                print("<< malformed message >>")
+                continue
+            mtype = msg.get("type")
+
+            if mtype == "chat":
+                room = msg.get("room")
+                user = msg.get("user")
+                text = msg.get("text")
+                print(f"[{room}] {user}: {text}")
+            elif mtype == "presence":
+                event = msg.get("event")
+                room = msg.get("room")
+                user = msg.get("user")
+                if event == "join":
+                    print(f"* {user} joined {room}")
+                elif event == "leave":
+                    print(f"* {user} left {room}")
+            elif mtype == "system":
+                print(f"* {msg.get('message')}")
+            elif mtype == "auth_error":
+                print("Auth error from server:", msg.get("message"))
+            # ignore any others
+
+    # ---------- user input ----------
+
+    def _input_loop(self, username: str):
+        print("Commands:")
+        print("  /join ROOM           join or create a room")
+        print("  /leave ROOM          leave a room")
+        print("  /msg ROOM text...    send message to room")
+        print("  /quit                disconnect")
+        print()
+        while self.running:
+            try:
+                line = input("> ")
+            except EOFError:
+                break
+            if not line:
+                continue
+            if line.startswith("/join "):
+                room = line.split(maxsplit=1)[1].strip()
+                self.transport.send_msg(
+                    self.conn_id, to_bytes({"type": "join", "room": room})
+                )
+            elif line.startswith("/leave "):
+                room = line.split(maxsplit=1)[1].strip()
+                self.transport.send_msg(
+                    self.conn_id, to_bytes({"type": "leave", "room": room})
+                )
+            elif line.startswith("/msg "):
+                parts = line.split(maxsplit=2)
+                if len(parts) < 3:
+                    print("Usage: /msg ROOM text")
+                    continue
+                room = parts[1]
+                text = parts[2]
+                self.transport.send_msg(
+                    self.conn_id,
+                    to_bytes({"type": "msg", "room": room, "text": text}),
+                )
+            elif line.startswith("/quit"):
+                self.transport.send_msg(
+                    self.conn_id, to_bytes({"type": "logout"})
+                )
+                self.running = False
+                break
+            else:
+                print("Unknown command. Use /join, /leave, /msg, /quit")
+
+    # ---------- main ----------
+
+    def run(self):
+        username = self._auth()
+        recv_t = threading.Thread(target=self._recv_loop, daemon=True)
+        recv_t.start()
+        try:
+            self._input_loop(username)
+        finally:
+            self.running = False
+            self.transport.close_conn(self.conn_id)
+            self.transport.print_metrics("client")
+            self.transport.shutdown()
+
+
+def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--server', default='127.0.0.1')
-    parser.add_argument('--port', type=int, default=9000)
+    parser.add_argument("--server", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
-    ChatClient(args.server, args.port).run()
+
+    client = ChatClient(args.server, args.port)
+    client.run()
+
+
+if __name__ == "__main__":
+    main()
+
