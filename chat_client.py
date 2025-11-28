@@ -1,4 +1,4 @@
-#chat_client.py — command-line client for the group chat service
+# chat_client.py — command-line client for the group chat service
 
 import argparse
 import threading
@@ -65,13 +65,45 @@ class ChatClient:
             except Exception:
                 print("<< malformed message >>")
                 continue
+
             mtype = msg.get("type")
 
+            # --------------------------
+            # NEW: HISTORY MESSAGES
+            # --------------------------
+            if mtype == "history":
+                room = msg.get("room", "")
+                text = msg.get("text", "")
+                print(f"[history:{room}] {text}")
+                continue
+
+            # --------------------------
+            # NEW: PRIVATE DM
+            # --------------------------
+            if mtype == "dm":
+                src = msg.get("from")
+                text = msg.get("text")
+                print(f"[DM from {src}] {text}")
+                continue
+
+            if mtype == "dm_sent":
+                dest = msg.get("to")
+                text = msg.get("text")
+                print(f"[DM to {dest}] {text}")
+                continue
+
+            # --------------------------
+            # NORMAL CHAT MESSAGE
+            # --------------------------
             if mtype == "chat":
                 room = msg.get("room")
                 user = msg.get("user")
                 text = msg.get("text")
                 print(f"[{room}] {user}: {text}")
+
+            # --------------------------
+            # PRESENCE / PRIORITY
+            # --------------------------
             elif mtype == "presence":
                 event = msg.get("event")
                 room = msg.get("room")
@@ -80,11 +112,13 @@ class ChatClient:
                     print(f"* {user} joined {room}")
                 elif event == "leave":
                     print(f"* {user} left {room}")
+
             elif mtype == "system":
                 print(f"* {msg.get('message')}")
+
             elif mtype == "auth_error":
                 print("Auth error from server:", msg.get("message"))
-            # ignore any others
+            # ignore others
 
     # ---------- user input ----------
 
@@ -93,6 +127,7 @@ class ChatClient:
         print("  /join ROOM           join or create a room")
         print("  /leave ROOM          leave a room")
         print("  /msg ROOM text...    send message to room")
+        print("  /dm USER text...     send private message")
         print("  /quit                disconnect")
         print()
         while self.running:
@@ -102,16 +137,22 @@ class ChatClient:
                 break
             if not line:
                 continue
+
+            # JOIN
             if line.startswith("/join "):
                 room = line.split(maxsplit=1)[1].strip()
                 self.transport.send_msg(
                     self.conn_id, to_bytes({"type": "join", "room": room})
                 )
+
+            # LEAVE
             elif line.startswith("/leave "):
                 room = line.split(maxsplit=1)[1].strip()
                 self.transport.send_msg(
                     self.conn_id, to_bytes({"type": "leave", "room": room})
                 )
+
+            # ROOM MESSAGE
             elif line.startswith("/msg "):
                 parts = line.split(maxsplit=2)
                 if len(parts) < 3:
@@ -123,14 +164,30 @@ class ChatClient:
                     self.conn_id,
                     to_bytes({"type": "msg", "room": room, "text": text}),
                 )
+
+            # ---------- NEW: PRIVATE MESSAGE ----------
+            elif line.startswith("/dm "):
+                parts = line.split(maxsplit=2)
+                if len(parts) < 3:
+                    print("Usage: /dm USER text")
+                    continue
+                dest = parts[1]
+                text = parts[2]
+                self.transport.send_msg(
+                    self.conn_id,
+                    to_bytes({"type": "dm", "to": dest, "text": text}),
+                )
+
+            # QUIT
             elif line.startswith("/quit"):
                 self.transport.send_msg(
                     self.conn_id, to_bytes({"type": "logout"})
                 )
                 self.running = False
                 break
+
             else:
-                print("Unknown command. Use /join, /leave, /msg, /quit")
+                print("Unknown command. Use /join, /leave, /msg, /dm, /quit")
 
     # ---------- main ----------
 
@@ -159,4 +216,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
