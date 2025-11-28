@@ -1,292 +1,321 @@
-# chat_server.py — server with rooms + presence over ReliableUDPSocket
-#made some changes, please run to see whats up 
 import argparse
-import threading
-from collections import defaultdict
 import json
-import os
-from typing import Dict, Set
-
+from typing import Optional
 from chat_transport import ReliableUDPSocket
 
-ACCOUNTS_FILE = "accounts.json"  # username -> password mapping
-
-
-def to_bytes(d: dict) -> bytes:
-    """Encode a JSON object as bytes."""
-    return (json.dumps(d) + "\n").encode("utf-8")
-
-
-def from_bytes(b: bytes) -> dict:
-    """Decode bytes into JSON object."""
-    return json.loads(b.decode("utf-8").strip())
+HISTORY_LIMIT = 20
 
 
 class ChatServer:
-    def __init__(self, host: str, port: int):
-        self.transport = ReliableUDPSocket(listen_addr=(host, port), is_server=True)
+    def __init__(self, port: int):
+        self.port = port
 
-        # room_name -> set of conn_ids
-        self.rooms: Dict[str, Set[int]] = defaultdict(set)
-        self.conn_user: Dict[int, str] = {}
-        self.conn_rooms: Dict[int, Set[str]] = defaultdict(set)
+        # Reliable UDP socket
+        self.rudp = ReliableUDPSocket(listen_addr=("0.0.0.0", port), is_server=True)
 
-        # NEW: track which connections we've already started a thread for
-        self.seen_conns = set()
+        # conn_id -> username
+        self.usernames = {}
 
-        self.accounts_lock = threading.Lock()
-        self._load_accounts()
+        # username -> conn_id
+        self.user_to_conn = {}
 
-    # ---------- account management ----------
+        # room -> set of usernames
+        self.rooms = {"general": set()}
+
+        # room -> list of past messages (text only, last HISTORY_LIMIT)
+        self.history = {"general": []}
+
+        # load accounts
+        self.accounts = self._load_accounts()
+        print(f"Loaded {len(self.accounts)} accounts.")
+
+    # -----------------------
+    # ACCOUNT HANDLING
+    # -----------------------
 
     def _load_accounts(self):
-        self.accounts = {}
-        if os.path.exists(ACCOUNTS_FILE):
-            try:
-                with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-                    self.accounts = json.load(f)
-            except Exception:
-                self.accounts = {}
+        try:
+            with open("accounts.json", "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
 
     def _save_accounts(self):
-        with self.accounts_lock:
-            with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.accounts, f, indent=2)
+        with open("accounts.json", "w") as f:
+            json.dump(self.accounts, f, indent=2)
 
-    # ---------- main loop ----------
+    # -----------------------
+    # SERVER MAIN LOOP
+    # -----------------------
 
-    def serve_forever(self):
-        print("Chat server running...")
-        try:
-            while True:
-                try:
-                    conn_id, addr = self.transport.accept()
-                except TimeoutError:
-                    continue
-
-                # ✅ Ignore duplicate notifications for the same connection
-                if conn_id in self.seen_conns:
-                    continue
-                self.seen_conns.add(conn_id)
-
-                print(f"New connection {conn_id} from {addr}")
-                t = threading.Thread(
-                    target=self._handle_client, args=(conn_id,), daemon=True
-                )
-                t.start()
-        except KeyboardInterrupt:
-            print("Shutting down server...")
-        finally:
-            self.transport.print_metrics("server")
-            self.transport.shutdown()
-
-    # ---------- helpers ----------
-
-    def _send(self, conn_id: int, obj: dict):
-        self.transport.send_msg(conn_id, to_bytes(obj))
-
-    def _broadcast_room(self, room: str, obj: dict):
-        conns = list(self.rooms.get(room, []))
-        for cid in conns:
-            try:
-                self._send(cid, obj)
-            except Exception:
-                pass
-
-
-    def _handle_auth(self, conn_id: int) -> bool:
-        """Handle login/register. Returns True if authenticated."""
+    def run(self):
+        print(f"Chat server running on UDP port {self.port}...")
+        import threading
         while True:
-            msg_bytes = self.transport.recv_msg(conn_id, timeout=300)
-            if msg_bytes is None:
-                return False
             try:
-                msg = from_bytes(msg_bytes)
-            except Exception:
-                self._send(
-                    conn_id, {"type": "auth_error", "message": "Bad auth message"}
-                )
+                conn_id, addr = self.rudp.accept(timeout=None)
+            except TimeoutError:
+                continue
+            # one handler thread per connection
+            threading.Thread(target=self._client_handler, args=(conn_id,), daemon=True).start()
+
+    # -----------------------
+    # UTILITIES
+    # -----------------------
+
+    def _send(self, conn_id: int, data: dict) -> None:
+        """Shortcut for JSON send."""
+        self.rudp.send_json(conn_id, data)
+
+    def _broadcast(self, room: str, data: dict) -> None:
+        """Send a JSON message to all users in a room."""
+        for username in list(self.rooms.get(room, [])):
+            cid = self.user_to_conn.get(username)
+            if cid is not None:
+                self._send(cid, data)
+
+    def _add_history(self, room: str, text: str) -> None:
+        hist = self.history.setdefault(room, [])
+        hist.append(text)
+        if len(hist) > HISTORY_LIMIT:
+            hist.pop(0)
+
+    def _send_history_to_user(self, conn_id: int, room: str) -> None:
+        for msg in self.history.get(room, []):
+            self._send(conn_id, {
+                "type": "history",
+                "room": room,
+                "text": msg,
+            })
+
+    # -----------------------
+    # CLIENT HANDLER
+    # -----------------------
+
+    def _client_handler(self, conn_id: int) -> None:
+        # Authenticate first
+        username = self._handle_auth(conn_id)
+        if username is None:
+            return
+
+        # Track username
+        self.usernames[conn_id] = username
+        self.user_to_conn[username] = conn_id
+
+        # Auto-join general
+        self._join_room(username, conn_id, "general")
+
+        # Main loop
+        while True:
+            msg = self.rudp.recv_json(conn_id, timeout=1.0)
+            if msg is None:
+                continue
+
+            if msg.get("type") == "logout":
+                self._handle_logout(username, conn_id)
+                return
+
+            mtype = msg.get("type")
+
+            if mtype == "join":
+                self._join_room(username, conn_id, msg.get("room"))
+
+            elif mtype == "leave":
+                self._leave_room(username, conn_id, msg.get("room"))
+
+            elif mtype == "msg":
+                room = msg.get("room")
+                text = msg.get("text")
+                self._handle_room_message(username, room, text)
+
+            elif mtype == "dm":
+                dest = msg.get("to")
+                text = msg.get("text")
+                self._handle_dm(username, dest, text)
+
+    # -----------------------
+    # AUTHENTICATION
+    # -----------------------
+
+    def _handle_auth(self, conn_id: int) -> Optional[str]:
+        while True:
+            msg = self.rudp.recv_json(conn_id, timeout=None)
+            if not msg:
                 continue
 
             if msg.get("type") != "auth":
-                self._send(
-                    conn_id,
-                    {
-                        "type": "auth_error",
-                        "message": "Please authenticate first",
-                    },
-                )
+                self._send(conn_id, {"type": "auth_error", "message": "Expected auth."})
                 continue
 
             mode = msg.get("mode")
-            username = msg.get("username", "")
-            password = msg.get("password", "")
+            username = msg.get("username")
+            password = msg.get("password")
 
-            if not username or not password:
-                self._send(
-                    conn_id,
-                    {
+            # register
+            if mode == "register":
+                if username in self.accounts:
+                    self._send(conn_id, {
                         "type": "auth_error",
-                        "message": "Username and password required",
-                    },
-                )
-                continue
-
-            with self.accounts_lock:
-                if mode == "register":
-                    if username in self.accounts:
-                        self._send(
-                            conn_id,
-                            {
-                                "type": "auth_error",
-                                "message": "Username already exists",
-                            },
-                        )
-                        continue
-                    self.accounts[username] = password
-                    self._save_accounts()
-                elif mode == "login":
-                    if self.accounts.get(username) != password:
-                        self._send(
-                            conn_id,
-                            {
-                                "type": "auth_error",
-                                "message": "Invalid username or password",
-                            },
-                        )
-                        continue
-                else:
-                    self._send(
-                        conn_id,
-                        {"type": "auth_error", "message": "Unknown auth mode"},
-                    )
+                        "message": "Username already exists.",
+                    })
                     continue
 
-            self.conn_user[conn_id] = username
-            self._send(
-                conn_id,
-                {"type": "auth_ok", "message": f"Welcome {username}!"},
-            )
-            print(f"Connection {conn_id} authenticated as {username}")
-            return True
+                self.accounts[username] = password
+                self._save_accounts()
 
-    def _handle_client(self, conn_id: int):
-        user = None
-        try:
-            if not self._handle_auth(conn_id):
-                return
-            user = self.conn_user.get(conn_id)
+                self._send(conn_id, {
+                    "type": "auth_ok",
+                    "message": "Registered successfully.",
+                })
+                return username
 
-            while True:
-                msg_bytes = self.transport.recv_msg(conn_id, timeout=None)
-                if msg_bytes is None:
-                    break
-                try:
-                    msg = from_bytes(msg_bytes)
-                except Exception:
-                    self._send(
-                        conn_id, {"type": "system", "message": "Malformed message"}
-                    )
-                    continue
+            # login
+            if mode == "login":
+                if username in self.accounts and self.accounts[username] == password:
+                    self._send(conn_id, {
+                        "type": "auth_ok",
+                        "message": "Login successful.",
+                    })
+                    return username
 
-                mtype = msg.get("type")
+                self._send(conn_id, {
+                    "type": "auth_error",
+                    "message": "Invalid credentials.",
+                })
 
-                if mtype == "join":
-                    room = msg.get("room", "lobby")
-                    self.rooms[room].add(conn_id)
-                    self.conn_rooms[conn_id].add(room)
-                    self._send(
-                        conn_id,
-                        {"type": "system", "message": f"Joined room {room}"},
-                    )
-                    self._broadcast_room(
-                        room,
-                        {
-                            "type": "presence",
-                            "event": "join",
-                            "room": room,
-                            "user": user,
-                        },
-                    )
+    # -----------------------
+    # ROOM HANDLERS
+    # -----------------------
 
-                elif mtype == "leave":
-                    room = msg.get("room")
-                    if room and conn_id in self.rooms.get(room, set()):
-                        self.rooms[room].discard(conn_id)
-                        self.conn_rooms[conn_id].discard(room)
-                        self._broadcast_room(
-                            room,
-                            {
-                                "type": "presence",
-                                "event": "leave",
-                                "room": room,
-                                "user": user,
-                            },
-                        )
+    def _join_room(self, username: str, conn_id: int, room: Optional[str]) -> None:
+        if not room:
+            return
+        room = room.lower()
 
-                elif mtype == "msg":
-                    room = msg.get("room")
-                    text = msg.get("text", "")
-                    if not room or conn_id not in self.rooms.get(room, set()):
-                        self._send(
-                            conn_id,
-                            {
-                                "type": "system",
-                                "message": f"Join room {room} first",
-                            },
-                        )
-                        continue
-                    self._broadcast_room(
-                        room,
-                        {
-                            "type": "chat",
-                            "room": room,
-                            "user": user,
-                            "text": text,
-                        },
-                    )
+        # Create room if needed
+        self.rooms.setdefault(room, set())
+        self.history.setdefault(room, [])
 
-                elif mtype == "logout":
-                    break
+        self.rooms[room].add(username)
 
-                else:
-                    self._send(
-                        conn_id,
-                        {"type": "system", "message": "Unknown command"},
-                    )
-        finally:
-            # cleanup on disconnect
-            user = self.conn_user.get(conn_id, user or "?")
-            rooms = list(self.conn_rooms.get(conn_id, set()))
-            for room in rooms:
-                self.rooms[room].discard(conn_id)
-                self._broadcast_room(
-                    room,
-                    {
-                        "type": "presence",
-                        "event": "leave",
-                        "room": room,
-                        "user": user,
-                    },
-                )
-            if conn_id in self.conn_rooms:
-                del self.conn_rooms[conn_id]
-            if conn_id in self.conn_user:
-                del self.conn_user[conn_id]
-            self.transport.close_conn(conn_id)
-            print(f"Connection {conn_id} closed")
+        # Send history
+        self._send_history_to_user(conn_id, room)
+
+        # Notify room
+        self._broadcast(room, {
+            "type": "presence",
+            "event": "join",
+            "room": room,
+            "user": username,
+        })
+
+    def _leave_room(self, username: str, conn_id: int, room: Optional[str]) -> None:
+        if not room:
+            return
+        room = room.lower()
+        if room not in self.rooms:
+            return
+
+        if username in self.rooms[room]:
+            self.rooms[room].remove(username)
+
+            self._broadcast(room, {
+                "type": "presence",
+                "event": "leave",
+                "room": room,
+                "user": username,
+            })
+
+    # -----------------------
+    # ROOM MESSAGES
+    # -----------------------
+
+    def _handle_room_message(self, username: str, room: Optional[str], text: Optional[str]) -> None:
+        if not room or text is None:
+            return
+
+        room = room.lower()
+        if room not in self.rooms:
+            return
+
+        # Add to history
+        self._add_history(room, f"{username}: {text}")
+
+        # Broadcast
+        self._broadcast(room, {
+            "type": "chat",
+            "room": room,
+            "user": username,
+            "text": text,
+        })
+
+    # -----------------------
+    # PRIVATE MESSAGES
+    # -----------------------
+
+    def _handle_dm(self, src: str, dest: Optional[str], text: Optional[str]) -> None:
+        if dest is None or text is None:
+            return
+
+        dest_conn = self.user_to_conn.get(dest)
+        src_conn = self.user_to_conn.get(src)
+
+        if not dest_conn:
+            # Tell sender the user isn't online
+            if src_conn:
+                self._send(src_conn, {
+                    "type": "system",
+                    "message": f"User '{dest}' not online.",
+                })
+            return
+
+        # Send to receiver
+        self._send(dest_conn, {
+            "type": "dm",
+            "from": src,
+            "text": text,
+        })
+
+        # Confirmation to sender
+        if src_conn:
+            self._send(src_conn, {
+                "type": "dm_sent",
+                "to": dest,
+                "text": text,
+            })
+
+    # -----------------------
+    # LOGOUT
+    # -----------------------
+
+    def _handle_logout(self, username: str, conn_id: int) -> None:
+        # remove from all rooms
+        for room_name, room in self.rooms.items():
+            if username in room:
+                room.remove(username)
+                # broadcast leave for that room
+                self._broadcast(room_name, {
+                    "type": "presence",
+                    "event": "leave",
+                    "room": room_name,
+                    "user": username,
+                })
+
+        # cleanup maps
+        self.user_to_conn.pop(username, None)
+        self.usernames.pop(conn_id, None)
+
+        print(f"{username} disconnected.")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
 
-    server = ChatServer(args.host, args.port)
-    server.serve_forever()
+    srv = ChatServer(args.port)
+    srv.run()
 
 
 if __name__ == "__main__":
     main()
-
