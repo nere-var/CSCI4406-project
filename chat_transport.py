@@ -86,6 +86,9 @@ class ReliableUDPSocket:
         self.recv_thread.start()
         self.timer_thread.start()
 
+
+
+
     # -------- public API --------
 
     def connect(self, addr: Tuple[str, int], timeout: float = 5.0) -> int:
@@ -394,3 +397,25 @@ class ReliableUDPSocket:
             print(f'  avg latency: {avg_lat*1000:.2f} ms  p95: {p95*1000:.2f} ms')
             print(f'  retransmissions: {st.retransmissions}  ({retrans_per_kb:.2f} per KB payload)')
             print(f'  out-of-order msgs: {st.out_of_order}')
+
+    def export_metrics_csv(self, filename: str = "metrics.csv") -> None:
+        """Export per-connection latency samples to a CSV for graphing."""
+        import csv
+        with self.conns_lock:
+            conns = list(self.conns.values())
+
+        with open(filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["conn_id", "latency_ms",
+                             "msgs_delivered", "retransmissions",
+                             "out_of_order"])
+            for st in conns:
+                for lat in st.latencies:
+                    writer.writerow([
+                        st.conn_id,
+                        lat * 1000.0,      # ms
+                        st.recv_base,
+                        st.retransmissions,
+                        st.out_of_order,
+                        ])
+        print(f"[Metrics] CSV exported to {filename}")
