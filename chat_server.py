@@ -308,13 +308,25 @@ class ChatServer:
         print(f"{username} disconnected.")
 
 
+
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
 
     srv = ChatServer(args.port)
-    srv.run()
+    try:
+        srv.run()
+    except KeyboardInterrupt:
+        print("Server shutting down...")
+    finally:
+        # ---- METRICS EXPORT ----
+        srv.rudp.print_metrics("server")
+        srv.rudp.export_metrics_csv("server_metrics.csv")
+        srv.rudp.shutdown()
+
 
 
 if __name__ == "__main__":
