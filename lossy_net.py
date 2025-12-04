@@ -25,7 +25,7 @@ def parse_args():
     p.add_argument("--target-port", type=int, required=True,
                    help="Real server port")
     p.add_argument("--profile", default="random",
-                   choices=["perfect", "random", "bursty"],
+                   choices=["clean", "random", "bursty"],
                    help="Loss profile")
     p.add_argument("--seed", type=int, default=None,
                    help="Random seed for reproducibility")
@@ -42,7 +42,7 @@ class LossModel:
         if seed is not None:
             random.seed(seed)
 
-        if profile == "perfect":
+        if profile == "clean":
             self.drop_p = 0.0
             self.dup_p = 0.0
             self.delay_p = 0.0
