@@ -238,16 +238,28 @@ class ChatServer:
         if room not in self.rooms:
             return
 
+        # ❗ NEW CHECK — only allow messaging if user is in that room
+        if username not in self.rooms[room]:
+            # User is NOT in that room → tell them they must join first
+            conn_id = self.user_to_conn.get(username)
+            if conn_id:
+                self._send(conn_id, {
+                    "type": "system",
+                    "message": f"You must /join {room} before messaging it.",
+                })
+            return
+
         # Add to history
         self._add_history(room, f"{username}: {text}")
 
-        # Broadcast
+        # Broadcast message to everyone in room
         self._broadcast(room, {
             "type": "chat",
             "room": room,
             "user": username,
             "text": text,
         })
+
 
     # -----------------------
     # PRIVATE MESSAGES
