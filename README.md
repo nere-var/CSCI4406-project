@@ -111,15 +111,15 @@ Our application uses a simple, slash-prefixed command grammar that keeps client 
 
 ### Message Format and Command Grammar
 **Commands**
-- JOIN \<room\> 
+- /join ROOM
   - join a chatroom
-- LEAVE \<room\>
+- /leave ROOM
   - leave a chatroom 
-- MSG \<room> <text\>
+- /msg ROOM <text>
   - send a message to a chatroom
-- DM USER <text>
-  - lists chatrooms available to join
-- /quit \<room\>
+- /dm USER <text>
+  - send private message to specific user 
+- /quit 
   - allows user to disconnect from the chat room and return to main server screen to view list of chatrooms available or change username
 ### How Client and Server Will Interact
 The client and server will interact by allowing a user to download the client to access a server hosted elsewhere. By having access to the client, the user can connect to the server, set a username and password, connect to a chatroom and chat, or disconnect from the server and leave the chat.\
