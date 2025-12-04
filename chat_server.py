@@ -64,8 +64,11 @@ class ChatServer:
     # -----------------------
 
     def _send(self, conn_id: int, data: dict) -> None:
-        """Shortcut for JSON send."""
-        self.rudp.send_json(conn_id, data)
+        try:
+            self.rudp.send_json(conn_id, data)
+        except RuntimeError:
+            # Connection is gone; drop the message
+            pass
 
     def _broadcast(self, room: str, data: dict) -> None:
         """Send a JSON message to all users in a room."""
